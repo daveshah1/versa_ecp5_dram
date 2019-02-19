@@ -38,9 +38,9 @@ _ddram_io = [
             IOStandard("SSTL135_I"),
             Misc("TERMINATION=75")),
         Subsignal("dqs_p", Pins("K2 H4"), IOStandard("SSTL135D_I"), Misc("TERMINATION=OFF"), Misc("DIFFRESISTOR=100")),
-        Subsignal("dqs_n", Pins("J1 G5"), IOStandard("SSTL135D_I")),
+        #Subsignal("dqs_n", Pins("J1 G5"), IOStandard("SSTL135D_I")),
         Subsignal("clk_p", Pins("M4"), IOStandard("SSTL135D_I")),
-        Subsignal("clk_n", Pins("N5"), IOStandard("SSTL135D_I")),
+        #Subsignal("clk_n", Pins("N5"), IOStandard("SSTL135D_I")),
         Subsignal("cke", Pins("N2"), IOStandard("SSTL135_I")),
         Subsignal("odt", Pins("L2"), IOStandard("SSTL135_I")),
         Subsignal("reset_n", Pins("N4"), IOStandard("SSTL135_I")),
@@ -76,7 +76,7 @@ class _CRG(Module):
         # clk / rst
         clk100 = platform.request("clk100")
         rst_n = platform.request("rst_n")
-        platform.add_period_constraint(clk100, 10.0)
+        platform.add_period_constraint(clk100, 20.0)
 
         # pll
         self.submodules.pll = pll = ECP5PLL()
@@ -86,7 +86,6 @@ class _CRG(Module):
         self.specials += Instance("CLKDIVF", p_DIV="2.0", i_CLKI=self.cd_sys2x.clk, i_RST=0, i_ALIGNWD=0, o_CDIVX=self.cd_sys.clk)
         self.specials += AsyncResetSynchronizer(self.cd_sys, ~pll.locked | ~rst_n)
 
-
 class BaseSoC(SoCSDRAM):
     csr_map = {
         "ddrphy":    16,
@@ -94,7 +93,7 @@ class BaseSoC(SoCSDRAM):
     }
     csr_map.update(SoCSDRAM.csr_map)
     def __init__(self, with_cpu=False, **kwargs):
-        platform = versa_ecp5.Platform(toolchain="diamond")
+        platform = versa_ecp5.Platform(toolchain="trellis")
         platform.add_extension(_ddram_io)
         sys_clk_freq = int(50e6)
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
@@ -163,7 +162,7 @@ def main():
 
     soc = BaseSoC(**soc_sdram_argdict(args))
     builder = Builder(soc, output_dir="build", csr_csv="test/csr.csv")
-    vns = builder.build(toolchain_path="/usr/local/diamond/3.10_x64/bin/lin64")
+    vns = builder.build(toolchain_path="/usr/share/trellis")
     soc.do_exit(vns)
     soc.generate_sdram_phy_py_header()
 

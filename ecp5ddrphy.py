@@ -203,6 +203,8 @@ class ECP5DDRPHY(Module, AutoCSR):
             datavalid = Signal()
             burstdet = Signal()
 
+            dqsi = Signal()
+
             self.specials += Instance("DQSBUFM",
                 p_DQS_LI_DEL_ADJ="MINUS",
                 p_DQS_LI_DEL_VAL=1,
@@ -230,7 +232,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 i_READCLKSEL0=readposition[0],
                 i_READCLKSEL1=readposition[1],
                 i_READCLKSEL2=readposition[2],
-                i_DQSI=pads.dqs_p[i],
+                i_DQSI=dqsi,
                 o_DQSR90=dqsr90,
                 o_RDPNTR0=rdpntr[0],
                 o_RDPNTR1=rdpntr[1],
@@ -243,7 +245,18 @@ class ECP5DDRPHY(Module, AutoCSR):
 
                 # Writes (generate shifted ECLK clock for writes)
                 o_DQSW270=dqsw270,
-                o_DQSW=dqsw
+                o_DQSW=dqsw,
+
+                # FIXME: Trellis should tie this signals low
+                i_DYNDELAY0=0,
+                i_DYNDELAY1=0,
+                i_DYNDELAY2=0,
+                i_DYNDELAY3=0,
+                i_DYNDELAY4=0,
+                i_DYNDELAY5=0,
+                i_DYNDELAY6=0,
+                i_DYNDELAY7=0
+
             )
 
             if i == 0:
@@ -327,7 +340,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_RST=ResetSignal() | ~ddrdel_lock,
                     o_Q=dqs_oe_n,
                 )
-            self.specials += Tristate(pads.dqs_p[i], dqs, ~dqs_oe_n)
+            self.specials += Tristate(pads.dqs_p[i], dqs, ~dqs_oe_n, dqsi)
 
             for j in range(8*i, 8*(i+1)):
                 dq_o = Signal()
@@ -361,14 +374,14 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_SCLK=ClockSignal(),
                         o_Q=dq_o
                     )
+
+                dq_i = Signal()
                 dq_i_data = Signal(4)
-
-
                 dq_i_delay = Signal()
 
                 self.specials += \
                     Instance("DELAYF",
-                        i_A=pads.dq[j],
+                        i_A=dq_i,
                         #i_LOADN=~(self._dly_sel.storage[i//8] & self._rdly_dq_rst.re),
                         #i_MOVE=self._dly_sel.storage[i//8] & self._rdly_dq_inc.re,
                         i_LOADN=1,
@@ -428,7 +441,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_RST=ResetSignal() | ~ddrdel_lock,
                         o_Q=dq_oe_n,
                     )
-                self.specials += Tristate(pads.dq[j], dq_o, ~dq_oe_n)
+                self.specials += Tristate(pads.dq[j], dq_o, ~dq_oe_n, dq_i)
 
         # Flow control -----------------------------------------------------------------------------
         #

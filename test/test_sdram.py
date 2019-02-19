@@ -219,8 +219,7 @@ if sdram_read_training:
 # DDRAM Test----------------------------------------------------------------------------------------
 
 if sdram_test:
-    ddram_set_bitslip(2)
-
+    ddram_set_bitslip(0)
     # hardware control
     ddram_hardware_control()
 
@@ -248,7 +247,7 @@ if sdram_test:
             errors += error
         return errors
 
-    write_pattern(64)
+    #write_pattern(64)
     errors = check_pattern(64, debug=True)
     print("{} errors".format(errors))
 
