@@ -67,8 +67,9 @@ class MT41K64M16(SDRAMModule):
 
 class _CRG(Module):
     def __init__(self, platform, sys_clk_freq):
+        self.clock_domains.cd_startclk = ClockDomain()
         self.clock_domains.cd_sys = ClockDomain()
-        self.clock_domains.cd_sys2x = ClockDomain(reset_less=True)
+        self.clock_domains.cd_sys2x = ClockDomain()
         self.clock_domains.cd_sys2x_i = ClockDomain(reset_less=True)
 
         # # #
@@ -78,13 +79,123 @@ class _CRG(Module):
         rst_n = platform.request("rst_n")
         platform.add_period_constraint(clk100, 20.0)
 
+        uddcntln = Signal(reset=0b1)
+        stop = Signal()
+        dll_lock = Signal()
+        freeze = Signal()
+        pause = Signal()
+        ddr_rst = Signal()
         # pll
         self.submodules.pll = pll = ECP5PLL()
         pll.register_clkin(clk100, 100e6)
         pll.create_clkout(self.cd_sys2x_i, 2*sys_clk_freq)
-        self.specials += Instance("ECLKSYNCB", i_ECLKI=self.cd_sys2x_i.clk, i_STOP=0, o_ECLKO=self.cd_sys2x.clk)
-        self.specials += Instance("CLKDIVF", p_DIV="2.0", i_CLKI=self.cd_sys2x.clk, i_RST=0, i_ALIGNWD=0, o_CDIVX=self.cd_sys.clk)
+        pll.create_clkout(self.cd_startclk, 25e6)
+        self.specials += Instance("ECLKSYNCB", i_ECLKI=self.cd_sys2x_i.clk, i_STOP=stop, o_ECLKO=self.cd_sys2x.clk)
+        self.specials += Instance("CLKDIVF", p_DIV="2.0", i_CLKI=self.cd_sys2x.clk, i_RST=self.cd_sys2x.rst, i_ALIGNWD=0, o_CDIVX=self.cd_sys.clk)
+
+        # Reset/init control
+        self.specials += AsyncResetSynchronizer(self.cd_startclk, ~pll.locked | ~rst_n)
         self.specials += AsyncResetSynchronizer(self.cd_sys, ~pll.locked | ~rst_n)
+
+        # Synchronise DDRDLL lock
+        dll_lock_sync = Signal(2, reset=0b00)
+        self.sync.startclk += dll_lock_sync.eq(Cat(dll_lock, dll_lock_sync[0]))
+
+        # Reset & startup FSM
+        init_timer = Signal(4, reset=0b0000)
+        reset_ddr_done = Signal(reset=0b0)
+        uddcntln_done = Signal(reset=0b0)
+
+        fsm = ClockDomainsRenamer("startclk")(FSM(reset_state="WAIT_LOCK"))
+        self.submodules += fsm
+        fsm.act("WAIT_LOCK",
+            uddcntln.eq(1), stop.eq(0), pause.eq(0),
+            freeze.eq(0), ddr_rst.eq(0),
+            If(dll_lock_sync[1],
+                If(init_timer == 5,
+                    NextValue(init_timer, 0),
+                    If(uddcntln_done, NextState("READY"))
+                    .Elif(reset_ddr_done, NextState("PAUSE"))
+                    .Else(NextState("FREEZE"))
+                ).Else(
+                    NextValue(init_timer, init_timer + 1)
+                )
+            ).Else(
+                NextValue(init_timer, 0)
+            )
+        )
+        fsm.act("FREEZE", 
+            uddcntln.eq(1), stop.eq(0), pause.eq(0),
+            freeze.eq(1), ddr_rst.eq(0),
+            If(init_timer == 3,
+                NextValue(init_timer, 0),
+                If(reset_ddr_done, NextState("WAIT_LOCK"))
+                .Else(NextState("STOP"))
+            ).Else(
+                NextValue(init_timer, init_timer + 1)
+            )
+        )
+        fsm.act("STOP", 
+            uddcntln.eq(1), stop.eq(1), pause.eq(0),
+            freeze.eq(1), ddr_rst.eq(0),
+            If(init_timer == 3,
+                NextValue(init_timer, 0),
+                If(reset_ddr_done, NextState("FREEZE"))
+                .Else(NextState("RESET_DDR"))
+            ).Else(
+                NextValue(init_timer, init_timer + 1)
+            )
+        )
+        fsm.act("RESET_DDR", 
+            uddcntln.eq(1), stop.eq(1), pause.eq(0),
+            freeze.eq(1), ddr_rst.eq(1),
+            If(init_timer == 3,
+                NextValue(init_timer, 0),
+                NextValue(reset_ddr_done, 1),
+                NextState("STOP")
+            ).Else(
+                NextValue(init_timer, init_timer + 1)
+            )
+        )
+        fsm.act("PAUSE", 
+            uddcntln.eq(1), stop.eq(0), pause.eq(1),
+            freeze.eq(0), ddr_rst.eq(0),
+            If(init_timer == 3,
+                NextValue(init_timer, 0),
+                If(uddcntln_done, NextState("WAIT_LOCK"))
+                .Else(NextState("UDDCNTLN"))
+            ).Else(
+                NextValue(init_timer, init_timer + 1)
+            )
+        )
+        fsm.act("UDDCNTLN", 
+            uddcntln.eq(0), stop.eq(0), pause.eq(1),
+            freeze.eq(0), ddr_rst.eq(0),
+            If(init_timer == 3,
+                NextValue(init_timer, 0),
+                NextValue(uddcntln_done, 1),
+                NextState("PAUSE")
+            ).Else(
+                NextValue(init_timer, init_timer + 1)
+            )
+        )
+        fsm.act("READY", 
+            uddcntln.eq(1), stop.eq(0), pause.eq(0),
+            freeze.eq(0), ddr_rst.eq(0)
+        )
+        self.pause = pause
+        self.ddrdel = Signal()
+
+        self.specials += Instance("DDRDLLA",
+            i_CLK=self.cd_sys2x.clk,
+            i_RST=self.cd_startclk.rst,
+            i_UDDCNTLN=uddcntln,
+            i_FREEZE=freeze,
+            o_DDRDEL=self.ddrdel,
+            o_LOCK=dll_lock
+        )
+
+        self.sync.startclk += self.cd_sys2x.rst.eq(ddr_rst)
 
 class BaseSoC(SoCSDRAM):
     csr_map = {
@@ -105,7 +216,8 @@ class BaseSoC(SoCSDRAM):
                           **kwargs)
 
         # crg
-        self.submodules.crg = _CRG(platform, sys_clk_freq)
+        crg = _CRG(platform, sys_clk_freq)
+        self.submodules.crg = crg
 
         # uart
         if not with_cpu:
@@ -115,6 +227,7 @@ class BaseSoC(SoCSDRAM):
         # sdram
         self.submodules.ddrphy = ecp5ddrphy.ECP5DDRPHY(
             platform.request("ddram"),
+            pause=crg.pause, ddrdel=crg.ddrdel,
             sys_clk_freq=sys_clk_freq)
         sdram_module = MT41K64M16(sys_clk_freq, "1:2")
         self.register_sdram(self.ddrphy,

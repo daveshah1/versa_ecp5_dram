@@ -247,7 +247,7 @@ if sdram_test:
             errors += error
         return errors
 
-    #write_pattern(64)
+    write_pattern(64)
     errors = check_pattern(64, debug=True)
     print("{} errors".format(errors))
 

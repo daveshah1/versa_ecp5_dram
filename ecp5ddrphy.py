@@ -37,7 +37,7 @@ def get_sys_phases(nphases, sys_latency, cas_latency):
 # Lattice ECP5 DDR PHY -----------------------------------------------------------------------------
 
 class ECP5DDRPHY(Module, AutoCSR):
-    def __init__(self, pads, sys_clk_freq=100e6):
+    def __init__(self, pads, pause, ddrdel, sys_clk_freq=100e6):
         memtype = "DDR3"
         tck = 2/(2*2*sys_clk_freq)
         addressbits = len(pads.a)
@@ -111,7 +111,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_D3=1,
                     i_ECLK=ClockSignal("sys2x"),
                     i_SCLK=ClockSignal(),
-                    i_RST=ResetSignal(),
+                    i_RST=ResetSignal("sys2x"),
                     o_Q=pads.clk_p[i]
                 ),
             ]
@@ -126,7 +126,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_D3=self.dfi.phases[1].address[i],
                     i_ECLK=ClockSignal("sys2x"),
                     i_SCLK=ClockSignal(),
-                    i_RST=ResetSignal(),
+                    i_RST=ResetSignal("sys2x"),
                     o_Q=pads.a[i]
                 )
         for i in range(bankbits):
@@ -138,7 +138,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_D3=self.dfi.phases[1].bank[i],
                     i_ECLK=ClockSignal("sys2x"),
                     i_SCLK=ClockSignal(),
-                    i_RST=ResetSignal(),
+                    i_RST=ResetSignal("sys2x"),
                     o_Q=pads.ba[i]
                 )
         controls = ["ras_n", "cas_n", "we_n", "cke", "odt"]
@@ -156,7 +156,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_D3=getattr(self.dfi.phases[1], name)[i],
                         i_ECLK=ClockSignal("sys2x"),
                         i_SCLK=ClockSignal(),
-                        i_RST=ResetSignal(),
+                        i_RST=ResetSignal("sys2x"),
                         o_Q=getattr(pads, name)[i]
                 )
 
@@ -168,18 +168,7 @@ class ECP5DDRPHY(Module, AutoCSR):
 
         global_datavalid = Signal()
         global_readposition = Signal(7)
-        ddrdel = Signal()
-        ddrdel_lock = Signal()
         dqs_read = Signal()
-
-        self.specials += Instance("DDRDLLA",
-            i_CLK=ClockSignal("sys2x"),
-            i_RST=ResetSignal(),
-            i_UDDCNTLN=~self._rdly_dq_rst.re,
-            i_FREEZE=ddrdel_lock,
-            o_DDRDEL=ddrdel,
-            o_LOCK=ddrdel_lock
-        )
 
         for i in range(databits//8):
             # DQSBUFM
@@ -213,9 +202,9 @@ class ECP5DDRPHY(Module, AutoCSR):
                 # Clocks / Reset
                 i_SCLK=ClockSignal("sys"),
                 i_ECLK=ClockSignal("sys2x"),
-                i_RST=ResetSignal(),
+                i_RST=ResetSignal("sys2x"),
                 i_DDRDEL=ddrdel,
-                i_PAUSE=~ddrdel_lock | self._dly_sel.storage[i],
+                i_PAUSE=pause | self._dly_sel.storage[i],
 
                 # Control
                 # Assert LOADNs to use DDRDEL control
@@ -309,7 +298,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_D1=dm_data_muxed[1],
                     i_D2=dm_data_muxed[2],
                     i_D3=dm_data_muxed[3],
-                    i_RST=ResetSignal() | ~ddrdel_lock,
+                    i_RST=ResetSignal("sys2x"),
                     i_DQSW270=dqsw270,
                     i_ECLK=ClockSignal("sys2x"),
                     i_SCLK=ClockSignal(),
@@ -324,7 +313,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_D1=dqs_serdes_pattern[1],
                     i_D2=dqs_serdes_pattern[2],
                     i_D3=dqs_serdes_pattern[3],
-                    i_RST=ResetSignal() | ~ddrdel_lock,
+                    i_RST=ResetSignal("sys2x"),
                     i_DQSW=dqsw,
                     i_ECLK=ClockSignal("sys2x"),
                     i_SCLK=ClockSignal(),
@@ -337,7 +326,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_SCLK=ClockSignal(),
                     i_ECLK=ClockSignal("sys2x"),
                     i_DQSW=dqsw,
-                    i_RST=ResetSignal() | ~ddrdel_lock,
+                    i_RST=ResetSignal("sys2x"),
                     o_Q=dqs_oe_n,
                 )
             self.specials += Tristate(pads.dqs_p[i], dqs, ~dqs_oe_n, dqsi)
@@ -368,7 +357,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_D1=dq_data_muxed[1],
                         i_D2=dq_data_muxed[2],
                         i_D3=dq_data_muxed[3],
-                        i_RST=ResetSignal() | ~ddrdel_lock,
+                        i_RST=ResetSignal("sys2x"),
                         i_DQSW270=dqsw270,
                         i_ECLK=ClockSignal("sys2x"),
                         i_SCLK=ClockSignal(),
@@ -394,7 +383,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 self.specials += \
                     Instance("IDDRX2DQA",
                         i_D=dq_i_delay,
-                        i_RST=ResetSignal() | ~ddrdel_lock,
+                        i_RST=ResetSignal("sys2x"),
                         i_DQSR90=dqsr90,
                         i_SCLK=ClockSignal(),
                         i_ECLK=ClockSignal("sys2x"),
@@ -438,7 +427,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_SCLK=ClockSignal(),
                         i_ECLK=ClockSignal("sys2x"),
                         i_DQSW270=dqsw270,
-                        i_RST=ResetSignal() | ~ddrdel_lock,
+                        i_RST=ResetSignal("sys2x"),
                         o_Q=dq_oe_n,
                     )
                 self.specials += Tristate(pads.dq[j], dq_o, ~dq_oe_n, dq_i)
