@@ -42,7 +42,7 @@ class ECP5DDRPHYInit(Module):
     def __init__(self, crg, phy):
         dll_lock = Signal()
         dll_lock_sync = Signal()
-        uddcntl = Signal(reset=0b1)
+        uddcntl = Signal(reset=0b0)
         stop = Signal()
 
         freeze = Signal()
@@ -53,7 +53,7 @@ class ECP5DDRPHYInit(Module):
         self.specials += MultiReg(dll_lock, dll_lock_sync, "init")
 
         # Reset & startup FSM
-        init_timer = WaitTimer(5)
+        init_timer = ClockDomainsRenamer("init")(WaitTimer(5))
         self.submodules += init_timer
         reset_ddr_done = Signal()
         uddcntl_done = Signal()
@@ -289,6 +289,7 @@ class ECP5DDRPHY(Module, AutoCSR):
 
         for i in range(databits//8):
             # DQSBUFM
+            dqsi = Signal()
             dqsr90  = Signal()
             dqsw270 = Signal()
             dqsw    = Signal()
@@ -336,7 +337,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                 i_READCLKSEL0=readposition[0],
                 i_READCLKSEL1=readposition[1],
                 i_READCLKSEL2=readposition[2],
-                i_DQSI=pads.dqs_p[i],
+                i_DQSI=dqsi,
                 o_DQSR90=dqsr90,
                 o_RDPNTR0=rdpntr[0],
                 o_RDPNTR1=rdpntr[1],
@@ -349,7 +350,7 @@ class ECP5DDRPHY(Module, AutoCSR):
 
                 # Writes (generate shifted ECLK clock for writes)
                 o_DQSW270=dqsw270,
-                o_DQSW=dqsw
+                o_DQSW=dqsw,
             )
 
             if i == 0:
@@ -433,7 +434,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                     i_RST=ResetSignal("sys2x"),
                     o_Q=dqs_oe_n,
                 )
-            self.specials += Tristate(pads.dqs_p[i], dqs, ~dqs_oe_n)
+            self.specials += Tristate(pads.dqs_p[i], dqs, ~dqs_oe_n, dqsi)
 
             for j in range(8*i, 8*(i+1)):
                 dq_o = Signal()
@@ -468,13 +469,11 @@ class ECP5DDRPHY(Module, AutoCSR):
                         o_Q=dq_o
                     )
                 dq_i_data = Signal(4)
-
-
                 dq_i_delay = Signal()
 
                 self.specials += \
                     Instance("DELAYF",
-                        i_A=pads.dq[j],
+                        i_A=dq_i,
                         #i_LOADN=~(self._dly_sel.storage[i//8] & self._rdly_dq_rst.re),
                         #i_MOVE=self._dly_sel.storage[i//8] & self._rdly_dq_inc.re,
                         i_LOADN=1,
@@ -534,7 +533,7 @@ class ECP5DDRPHY(Module, AutoCSR):
                         i_RST=ResetSignal("sys2x"),
                         o_Q=dq_oe_n,
                     )
-                self.specials += Tristate(pads.dq[j], dq_o, ~dq_oe_n)
+                self.specials += Tristate(pads.dq[j], dq_o, ~dq_oe_n, dq_i)
 
         # Flow control -----------------------------------------------------------------------------
         #

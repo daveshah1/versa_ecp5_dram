@@ -65,8 +65,9 @@ class DevSoC(SoCSDRAM):
         "analyzer":  17
     }
     csr_map.update(SoCSDRAM.csr_map)
-    def __init__(self):
-        platform = versa_ecp5.Platform(toolchain="diamond")
+
+    def __init__(self, toolchain="diamond"):
+        platform = versa_ecp5.Platform(toolchain=toolchain)
         sys_clk_freq = int(50e6)
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
                           cpu_type=None, l2_size=32,
@@ -120,14 +121,13 @@ class DevSoC(SoCSDRAM):
         if hasattr(self, "analyzer"):
             self.analyzer.export_csv(vns, "test/analyzer.csv")
 
-
 class BaseSoC(SoCSDRAM):
     csr_map = {
         "ddrphy":    16,
     }
     csr_map.update(SoCSDRAM.csr_map)
-    def __init__(self):
-        platform = versa_ecp5.Platform(toolchain="diamond")
+    def __init__(self, toolchain="diamond"):
+        platform = versa_ecp5.Platform(toolchain=toolchain)
         sys_clk_freq = int(50e6)
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
                           cpu_type="picorv32", l2_size=32,
@@ -155,13 +155,19 @@ class BaseSoC(SoCSDRAM):
 
 
 def main():
-    soc = DevSoC() if "dev" in sys.argv[1:] else BaseSoC()
+
+    toolchain = "diamond"
+    toolchain_path = "/usr/local/diamond/3.10_x64/bin/lin64"
+    if "trellis" in sys.argv[1:]:
+        toolchain = "trellis"
+        toolchain_path = "/usr/share/trellis"
+
+    soc = DevSoC(toolchain=toolchain) if "dev" in sys.argv[1:] else BaseSoC(toolchain=toolchain)
     builder = Builder(soc, output_dir="build", csr_csv="test/csr.csv")
-    vns = builder.build(toolchain_path="/usr/local/diamond/3.10_x64/bin/lin64")
+    vns = builder.build(toolchain_path=toolchain_path)
     if isinstance(soc, DevSoC):
         soc.do_exit(vns)
         soc.generate_sdram_phy_py_header()
-
 
 if __name__ == "__main__":
     main()
