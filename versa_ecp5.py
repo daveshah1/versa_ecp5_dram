@@ -13,6 +13,7 @@ from litex.soc.cores.clock import *
 from litex.soc.integration.soc_sdram import *
 from litex.soc.integration.builder import *
 from litex.soc.cores.uart import UARTWishboneBridge
+from litex.soc.interconnect import wishbone
 
 from litescope import LiteScopeAnalyzer
 
@@ -25,6 +26,7 @@ import ecp5ddrphy
 class _CRG(Module):
     def __init__(self, platform, sys_clk_freq):
         self.clock_domains.cd_init = ClockDomain()
+        self.clock_domains.cd_por = ClockDomain(reset_less=True)
         self.clock_domains.cd_sys = ClockDomain()
         self.clock_domains.cd_sys2x = ClockDomain()
         self.clock_domains.cd_sys2x_i = ClockDomain(reset_less=True)
@@ -37,6 +39,13 @@ class _CRG(Module):
         clk100 = platform.request("clk100")
         rst_n = platform.request("rst_n")
         platform.add_period_constraint(clk100, 10.0)
+
+        # power on reset
+        por_count = Signal(16, reset=2**16-1)
+        por_done = Signal()
+        self.comb += self.cd_por.clk.eq(ClockSignal())
+        self.comb += por_done.eq(por_count == 0)
+        self.sync.por += If(~por_done, por_count.eq(por_count - 1))
 
         # pll
         self.submodules.pll = pll = ECP5PLL()
@@ -54,8 +63,8 @@ class _CRG(Module):
                 i_CLKI=self.cd_sys2x.clk,
                 i_RST=self.cd_sys2x.rst,
                 o_CDIVX=self.cd_sys.clk),
-            AsyncResetSynchronizer(self.cd_init, ~pll.locked | ~rst_n),
-            AsyncResetSynchronizer(self.cd_sys, ~pll.locked | ~rst_n)
+            AsyncResetSynchronizer(self.cd_init, ~por_done | ~pll.locked | ~rst_n),
+            AsyncResetSynchronizer(self.cd_sys, ~por_done | ~pll.locked | ~rst_n)
         ]
 
 
@@ -110,13 +119,6 @@ class DevSoC(SoCSDRAM):
         analyzer_signals += [self.ddrphy.dq_i_data[i] for i in range(8)]
         self.submodules.analyzer = LiteScopeAnalyzer(analyzer_signals, 128)
 
-    def generate_sdram_phy_py_header(self):
-        f = open("test/sdram_init.py", "w")
-        f.write(get_sdram_phy_py_header(
-            self.sdram.controller.settings.phy,
-            self.sdram.controller.settings.timing))
-        f.close()
-
     def do_exit(self, vns):
         if hasattr(self, "analyzer"):
             self.analyzer.export_csv(vns, "test/analyzer.csv")
@@ -126,6 +128,11 @@ class BaseSoC(SoCSDRAM):
         "ddrphy":    16,
     }
     csr_map.update(SoCSDRAM.csr_map)
+
+    mem_map = {
+        "firmware_ram": 0x20000000,
+    }
+    mem_map.update(SoCSDRAM.mem_map)
     def __init__(self, toolchain="diamond"):
         platform = versa_ecp5.Platform(toolchain=toolchain)
         sys_clk_freq = int(50e6)
@@ -137,6 +144,11 @@ class BaseSoC(SoCSDRAM):
         crg = _CRG(platform, sys_clk_freq)
         self.submodules.crg = crg
 
+        # firmware ram
+        firmware_ram_size = 0x10000
+        self.submodules.firmware_ram = wishbone.SRAM(firmware_ram_size)
+        self.register_mem("firmware_ram", self.mem_map["firmware_ram"], self.firmware_ram.bus, firmware_ram_size)
+
         # sdram
         self.submodules.ddrphy = ecp5ddrphy.ECP5DDRPHY(
             platform.request("ddram"),
@@ -147,12 +159,16 @@ class BaseSoC(SoCSDRAM):
         self.register_sdram(self.ddrphy,
             sdram_module.geom_settings,
             sdram_module.timing_settings)
+        self.add_constant("MEMTEST_BUS_DEBUG", None)
+        self.add_constant("MEMTEST_DATA_SIZE", 1024)
+        self.add_constant("MEMTEST_DATA_DEBUG", None)
+        self.add_constant("MEMTEST_ADDR_SIZE", 1024)
+        self.add_constant("MEMTEST_ADDR_DEBUG", None)
 
         # led blinking
         led_counter = Signal(32)
         self.sync += led_counter.eq(led_counter + 1)
         self.comb += platform.request("user_led", 0).eq(led_counter[26])
-
 
 def main():
 
