@@ -20,6 +20,7 @@ from litedram.modules import MT41K64M16
 from litedram.sdram_init import get_sdram_phy_py_header
 
 from liteeth.common import *
+from liteeth.core.mac import LiteEthMAC
 from liteeth.core import LiteEthUDPIPCore
 
 from litescope import LiteScopeAnalyzer
@@ -230,6 +231,42 @@ class BaseSoC(SoCSDRAM):
         self.sync += led_counter.eq(led_counter + 1)
         self.comb += platform.request("user_led", 0).eq(led_counter[26])
 
+
+class EthernetSoC(BaseSoC):
+    csr_map = {
+        "ethphy": 18,
+        "ethmac": 19
+    }
+    csr_map.update(BaseSoC.csr_map)
+
+    interrupt_map = {
+        "ethmac": 3,
+    }
+    interrupt_map.update(BaseSoC.interrupt_map)
+
+    mem_map = {
+        "ethmac": 0x30000000,  # (shadow @0xb0000000)
+    }
+    mem_map.update(BaseSoC.mem_map)
+
+    def __init__(self, **kwargs):
+        BaseSoC.__init__(self, **kwargs)
+
+        # ethernet mac
+        self.submodules.ethphy = ecp5rgmii.LiteEthPHYRGMII(
+            self.platform.request("eth_clocks"),
+            self.platform.request("eth"))
+        self.submodules.ethmac = LiteEthMAC(phy=self.ethphy, dw=32,
+            interface="wishbone", endianness=self.cpu.endianness)
+        self.add_wb_slave(mem_decoder(self.mem_map["ethmac"]), self.ethmac.bus)
+        self.add_memory_region("ethmac", self.mem_map["ethmac"] | self.shadow_base, 0x2000)
+
+        self.ethphy.crg.cd_eth_rx.clk.attr.add("keep")
+        self.ethphy.crg.cd_eth_tx.clk.attr.add("keep")
+        self.platform.add_period_constraint(self.ethphy.crg.cd_eth_rx.clk, period_ns(125e6))
+        self.platform.add_period_constraint(self.ethphy.crg.cd_eth_tx.clk, period_ns(125e6))
+
+
 def main():
 
     toolchain = "diamond"
@@ -245,8 +282,10 @@ def main():
         soc = RGMIITestSoC(toolchain=toolchain)
     elif "base" in sys.argv[1:]:
         soc = BaseSoC(toolchain=toolchain)
+    elif "ethernet" in sys.argv[1:]:
+        soc = EthernetSoC(toolchain=toolchain)
     else:
-        print("missing target, supported: (ddr3_test, rgmii_test, base)")
+        print("missing target, supported: (ddr3_test, rgmii_test, base, ethernet)")
         exit(1)
     builder = Builder(soc, output_dir="build", csr_csv="test/csr.csv")
     vns = builder.build(toolchain_path=toolchain_path)

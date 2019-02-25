@@ -26,7 +26,7 @@ class LiteEthPHYRGMIITX(Module):
             ),
             Instance("DELAYF",
                 p_DEL_MODE="SCLK_ALIGNED",
-                p_DEL_VALUE="DELAY0", # FIXME: adjust
+                p_DEL_VALUE="DELAY0",
                 i_A=tx_ctl_oddrx1f,
                 i_LOADN=1,
                 i_MOVE=0,
@@ -44,7 +44,7 @@ class LiteEthPHYRGMIITX(Module):
                 ),
                 Instance("DELAYF",
                     p_DEL_MODE="SCLK_ALIGNED",
-                    p_DEL_VALUE="DELAY0", # FIXME: adjust
+                    p_DEL_VALUE="DELAY0",
                     i_A=tx_data_oddrx1f[i],
                     i_LOADN=1,
                     i_MOVE=0,
@@ -70,7 +70,7 @@ class LiteEthPHYRGMIIRX(Module):
         self.specials += [
             Instance("DELAYF",
                 p_DEL_MODE="SCLK_ALIGNED",
-                p_DEL_VALUE="DELAY0", # FIXME: adjust
+                p_DEL_VALUE="DELAY{}".format(int(2e-9/25e-12)), # 2ns (25ps per tap)
                 i_A=pads.rx_ctl,
                 i_LOADN=1,
                 i_MOVE=0,
@@ -88,7 +88,7 @@ class LiteEthPHYRGMIIRX(Module):
             self.specials += [
                 Instance("DELAYF",
                     p_DEL_MODE="SCLK_ALIGNED",
-                    p_DEL_VALUE="DELAY0", # FIXME: adjust
+                    p_DEL_VALUE="DELAY{}".format(int(2e-9/25e-12)), # 2ns (25ps per tap)
                     i_A=pads.rx_data[i],
                     i_LOADN=1,
                     i_MOVE=0,
@@ -128,19 +128,7 @@ class LiteEthPHYRGMIICRG(Module, AutoCSR):
         self.comb += self.cd_eth_tx.clk.eq(self.cd_eth_rx.clk)
 
         # RX
-        eth_rx_clk_ibuf = Signal()
         self.comb += self.cd_eth_rx.clk.eq(clock_pads.rx)
-        self.specials += [
-            Instance("DELAYF",
-                p_DEL_MODE="USER_DEFINED",
-                p_DEL_VALUE=60, # FIXME: adjust
-                i_A=clock_pads.rx,
-                i_LOADN=1,
-                i_MOVE=0,
-                i_DIRECTION=0,
-                o_Z=eth_rx_clk_ibuf)
-        ]
-
 
         # TX
         eth_tx_clk_o = Signal()
@@ -154,7 +142,7 @@ class LiteEthPHYRGMIICRG(Module, AutoCSR):
             ),
             Instance("DELAYF",
                 p_DEL_MODE="SCLK_ALIGNED",
-                p_DEL_VALUE="DELAY0", # FIXME: adjust
+                p_DEL_VALUE="DELAY{}".format(int(2e-9/25e-12)),
                 i_A=eth_tx_clk_o,
                 i_LOADN=1,
                 i_MOVE=0,
