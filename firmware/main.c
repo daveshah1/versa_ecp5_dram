@@ -99,30 +99,6 @@ static void sdram_test(void)
 	memtest();
 }
 
-static void phy_reset(void)
-{
-	int i;
-	printf("Reseting SDRAM PHY.\n");
-	for(i=0; i<NBMODULES; i++) {
-		ddrphy_dly_sel_write(1<<i);
-		ddrphy_rdly_dq_rst_write(1);
-		ddrphy_rdly_dq_bitslip_rst_write(1);
-#ifdef CSR_DDRPHY_WLEVEL_EN_ADDR
-		ddrphy_wdly_dq_rst_write(1);
-		ddrphy_wdly_dqs_rst_write(1);
-#endif
-	}
-}
-
-static void phy_bitslip(void)
-{
-	printf("Read bitslip.\n");
-	ddrphy_dly_sel_write(1<<0);
-	ddrphy_rdly_dq_bitslip_write(1);
-	ddrphy_dly_sel_write(1<<1);
-	ddrphy_rdly_dq_bitslip_write(1);
-}
-
 static void console_service(void)
 {
 	char *str;
@@ -141,10 +117,6 @@ static void console_service(void)
 		sdram_init();
 	else if(strcmp(token, "phy_diag") == 0)
 		sdrdiag();
-	else if(strcmp(token, "phy_reset") == 0)
-		phy_reset();
-	else if(strcmp(token, "phy_bitslip") == 0)
-		phy_bitslip();
 	prompt();
 }
 

@@ -164,12 +164,6 @@ class ECP5DDRPHY(Module, AutoCSR):
         self.ddrdel = Signal()
 
         # Registers --------------------------------------------------------------------------------
-
-        self._half_sys8x_taps = CSRStorage(4, reset=0) # FIXME
-
-        self._wlevel_en = CSRStorage()
-        self._wlevel_strobe = CSR()
-
         self._dly_sel = CSRStorage(databits//8)
 
         self._rdly_dq_rst = CSR()
@@ -177,13 +171,9 @@ class ECP5DDRPHY(Module, AutoCSR):
         self._rdly_dq_bitslip_rst = CSR()
         self._rdly_dq_bitslip = CSR()
 
-        self._wdly_dq_rst = CSR()
-        self._wdly_dq_inc = CSR()
-        self._wdly_dqs_rst = CSR()
-        self._wdly_dqs_inc = CSR()
-
-        self._burstdet_rst = CSR()
-        self._burstdet_found = CSRStatus()
+        # Observation
+        self.datavalid = Signal(databits//8)
+        self.burstdet = Signal(databits//8)
 
         # PHY settings -----------------------------------------------------------------------------
         cl, cwl = get_cl_cw(memtype, tck)
@@ -203,7 +193,7 @@ class ECP5DDRPHY(Module, AutoCSR):
             wrcmdphase=wrcmdphase,
             cl=cl,
             cwl=cwl,
-            read_latency=2 + cl_sys_latency + 2 + log2_int(4//nphases) + 6, # FIXME
+            read_latency=2 + cl_sys_latency + 2 + log2_int(4//nphases) + 6,
             write_latency=cwl_sys_latency
         )
 
@@ -280,36 +270,28 @@ class ECP5DDRPHY(Module, AutoCSR):
         # DQ ---------------------------------------------------------------------------------------
         oe_dq = Signal()
         oe_dqs = Signal()
-        postamble_dqs = Signal()
-        preamble_dqs = Signal()
-
-        global_datavalid = Signal()
-        global_readposition = Signal(7)
+        dqs_postamble = Signal()
+        dqs_preamble = Signal()
         dqs_read = Signal()
-
         for i in range(databits//8):
             # DQSBUFM
             dqsi = Signal()
             dqsr90  = Signal()
             dqsw270 = Signal()
-            dqsw    = Signal()
-            rdpntr  = Signal(3)
-            wrpntr  = Signal(3)
-            readposition = Signal(7)
+            dqsw = Signal()
+            rdpntr = Signal(3)
+            wrpntr = Signal(3)
+            rdly = Signal(7)
             self.sync += \
                 If(self._dly_sel.storage[i],
                     If(self._rdly_dq_rst.re,
-                        readposition.eq(0)
+                        rdly.eq(0),
                     ).Elif(self._rdly_dq_inc.re,
-                        readposition.eq(readposition + 1)
+                        rdly.eq(rdly + 1),
                     )
                 )
-            if i == 0:
-                self.comb += global_readposition.eq(readposition)
-                self.readposition = readposition
             datavalid = Signal()
             burstdet = Signal()
-
             self.specials += Instance("DQSBUFM",
                 p_DQS_LI_DEL_ADJ="MINUS",
                 p_DQS_LI_DEL_VAL=1,
@@ -334,10 +316,12 @@ class ECP5DDRPHY(Module, AutoCSR):
                 # Reads (generate shifted DQS clock for reads)
                 i_READ0=dqs_read,
                 i_READ1=dqs_read,
-                i_READCLKSEL0=readposition[0],
-                i_READCLKSEL1=readposition[1],
-                i_READCLKSEL2=readposition[2],
+
+                i_READCLKSEL0=rdly[0],
+                i_READCLKSEL1=rdly[1],
+                i_READCLKSEL2=rdly[2],
                 i_DQSI=dqsi,
+
                 o_DQSR90=dqsr90,
                 o_RDPNTR0=rdpntr[0],
                 o_RDPNTR1=rdpntr[1],
@@ -345,64 +329,38 @@ class ECP5DDRPHY(Module, AutoCSR):
                 o_WRPNTR0=wrpntr[0],
                 o_WRPNTR1=wrpntr[1],
                 o_WRPNTR2=wrpntr[2],
-                o_DATAVALID=datavalid,
-                o_BURSTDET=burstdet,
+                o_DATAVALID=self.datavalid[i],
+                o_BURSTDET=self.burstdet[i],
 
                 # Writes (generate shifted ECLK clock for writes)
                 o_DQSW270=dqsw270,
                 o_DQSW=dqsw,
             )
 
-            if i == 0:
-                self.comb += global_datavalid.eq(datavalid)
-                self.datavalid = datavalid
-                self.burstdet = burstdet
-                self.dqs_read = dqs_read
-                burstdet_d = Signal()
-                self.sync += burstdet_d.eq(burstdet)
-                self.sync += [
-                    If(self._burstdet_rst.re,
-                        self._burstdet_found.status.eq(0)
-                    ).Elif(burstdet & ~burstdet_d,
-                        self._burstdet_found.status.eq(1)
-                    )
-                ]
-
             # DQS and DM ---------------------------------------------------------------------------
             dqs_serdes_pattern = Signal(8, reset=0b1010)
-            self.comb += \
-                If(self._wlevel_en.storage,
-                    If(self._wlevel_strobe.re,
-                        dqs_serdes_pattern.eq(0b0001)
-                    ).Else(
-                        dqs_serdes_pattern.eq(0b0000)
-                    )
-                 ).Else(
-                    dqs_serdes_pattern.eq(0b1010)
-                )
-
-            dm_data = Signal(8)
-            dm_data_d = Signal(8)
-            dm_data_muxed = Signal(4)
-            self.comb += dm_data.eq(Cat(
+            dm_o_data = Signal(8)
+            dm_o_data_d = Signal(8)
+            dm_o_data_muxed = Signal(4)
+            self.comb += dm_o_data.eq(Cat(
                 self.dfi.phases[0].wrdata_mask[0*databits//8+i], self.dfi.phases[0].wrdata_mask[1*databits//8+i],
                 self.dfi.phases[0].wrdata_mask[2*databits//8+i], self.dfi.phases[0].wrdata_mask[3*databits//8+i],
                 self.dfi.phases[1].wrdata_mask[0*databits//8+i], self.dfi.phases[1].wrdata_mask[1*databits//8+i],
                 self.dfi.phases[1].wrdata_mask[2*databits//8+i], self.dfi.phases[1].wrdata_mask[3*databits//8+i]),
             )
-            self.sync += dm_data_d.eq(dm_data)
+            self.sync += dm_o_data_d.eq(dm_o_data)
             self.sync += \
                 If(bl8_sel,
-                    dm_data_muxed.eq(dm_data_d[4:])
+                    dm_o_data_muxed.eq(dm_o_data_d[4:])
                 ).Else(
-                    dm_data_muxed.eq(dm_data[:4])
+                    dm_o_data_muxed.eq(dm_o_data[:4])
                 )
             self.specials += \
                 Instance("ODDRX2DQA",
-                    i_D0=dm_data_muxed[0],
-                    i_D1=dm_data_muxed[1],
-                    i_D2=dm_data_muxed[2],
-                    i_D3=dm_data_muxed[3],
+                    i_D0=dm_o_data_muxed[0],
+                    i_D1=dm_o_data_muxed[1],
+                    i_D2=dm_o_data_muxed[2],
+                    i_D3=dm_o_data_muxed[3],
                     i_RST=ResetSignal("sys2x"),
                     i_DQSW270=dqsw270,
                     i_ECLK=ClockSignal("sys2x"),
@@ -426,8 +384,8 @@ class ECP5DDRPHY(Module, AutoCSR):
                 )
             self.specials += \
                 Instance("TSHX2DQSA",
-                    i_T0=~(oe_dqs|postamble_dqs),
-                    i_T1=~(oe_dqs|preamble_dqs),
+                    i_T0=~(oe_dqs|dqs_postamble),
+                    i_T1=~(oe_dqs|dqs_preamble),
                     i_SCLK=ClockSignal(),
                     i_ECLK=ClockSignal("sys2x"),
                     i_DQSW=dqsw,
@@ -440,52 +398,49 @@ class ECP5DDRPHY(Module, AutoCSR):
                 dq_o = Signal()
                 dq_i = Signal()
                 dq_oe_n = Signal()
-                dq_data = Signal(8)
-                dq_data_d = Signal(8)
-                dq_data_muxed = Signal(4)
-                self.comb += dq_data.eq(Cat(
+                dq_i_delayed = Signal()
+                dq_i_data = Signal(4)
+                dq_o_data = Signal(8)
+                dq_o_data_d = Signal(8)
+                dq_o_data_muxed = Signal(4)
+                self.comb += dq_o_data.eq(Cat(
                     self.dfi.phases[0].wrdata[0*databits+j], self.dfi.phases[0].wrdata[1*databits+j],
                     self.dfi.phases[0].wrdata[2*databits+j], self.dfi.phases[0].wrdata[3*databits+j],
                     self.dfi.phases[1].wrdata[0*databits+j], self.dfi.phases[1].wrdata[1*databits+j],
                     self.dfi.phases[1].wrdata[2*databits+j], self.dfi.phases[1].wrdata[3*databits+j])
                 )
-                self.sync += dq_data_d.eq(dq_data)
+                self.sync += dq_o_data_d.eq(dq_o_data)
                 self.sync += \
                     If(bl8_sel,
-                        dq_data_muxed.eq(dq_data_d[4:])
+                        dq_o_data_muxed.eq(dq_o_data_d[4:])
                     ).Else(
-                        dq_data_muxed.eq(dq_data[:4])
+                        dq_o_data_muxed.eq(dq_o_data[:4])
                     )
                 self.specials += \
                     Instance("ODDRX2DQA",
-                        i_D0=dq_data_muxed[0],
-                        i_D1=dq_data_muxed[1],
-                        i_D2=dq_data_muxed[2],
-                        i_D3=dq_data_muxed[3],
+                        i_D0=dq_o_data_muxed[0],
+                        i_D1=dq_o_data_muxed[1],
+                        i_D2=dq_o_data_muxed[2],
+                        i_D3=dq_o_data_muxed[3],
                         i_RST=ResetSignal("sys2x"),
                         i_DQSW270=dqsw270,
                         i_ECLK=ClockSignal("sys2x"),
                         i_SCLK=ClockSignal(),
                         o_Q=dq_o
                     )
-                dq_i_data = Signal(4)
-                dq_i_delay = Signal()
 
                 self.specials += \
                     Instance("DELAYF",
                         i_A=dq_i,
-                        #i_LOADN=~(self._dly_sel.storage[i//8] & self._rdly_dq_rst.re),
-                        #i_MOVE=self._dly_sel.storage[i//8] & self._rdly_dq_inc.re,
                         i_LOADN=1,
                         i_MOVE=0,
                         i_DIRECTION=0,
-                        o_Z=dq_i_delay,
+                        o_Z=dq_i_delayed,
                         p_DEL_MODE="DQS_ALIGNED_X2"
                     )
-
                 self.specials += \
                     Instance("IDDRX2DQA",
-                        i_D=dq_i_delay,
+                        i_D=dq_i_delayed,
                         i_RST=ResetSignal("sys2x"),
                         i_DQSR90=dqsr90,
                         i_SCLK=ClockSignal(),
@@ -501,9 +456,6 @@ class ECP5DDRPHY(Module, AutoCSR):
                         o_Q2=dq_i_data[2],
                         o_Q3=dq_i_data[3],
                     )
-                # debug
-                if i == 0:
-                    self.dq_i_data.append(dq_i_data)
                 dq_bitslip = BitSlip(4)
                 self.comb += dq_bitslip.i.eq(dq_i_data)
                 self.sync += \
@@ -538,9 +490,9 @@ class ECP5DDRPHY(Module, AutoCSR):
         # Flow control -----------------------------------------------------------------------------
         #
         # total read latency:
-        #  N cycles through ODDRX2DQA FIXME
-        #  cl_sys_latency cycles CAS
-        #  M cycles through IDDRX2DQA FIXME
+        #  ODDRX2DQA latency
+        #  cl_sys_latency
+        #  IDDRX2DQA latency
         rddata_en = self.dfi.phases[self.settings.rdphase].rddata_en
         rddata_ens = Array([Signal() for i in range(self.settings.read_latency-1)])
         for i in range(self.settings.read_latency-1):
@@ -548,24 +500,19 @@ class ECP5DDRPHY(Module, AutoCSR):
             self.sync += n_rddata_en.eq(rddata_en)
             self.comb += rddata_ens[i].eq(rddata_en)
             rddata_en = n_rddata_en
-        self.sync += [phase.rddata_valid.eq(rddata_en | self._wlevel_en.storage)
+        self.sync += [phase.rddata_valid.eq(rddata_en)
             for phase in self.dfi.phases]
-        self.sync += dqs_read.eq(rddata_ens[global_readposition[3:7]] | rddata_ens[global_readposition[3:7]+1])
+        self.comb += dqs_read.eq(rddata_ens[cl_sys_latency] | rddata_ens[cl_sys_latency+1])
         oe = Signal()
         last_wrdata_en = Signal(cwl_sys_latency+3)
         wrphase = self.dfi.phases[self.settings.wrphase]
         self.sync += last_wrdata_en.eq(Cat(wrphase.wrdata_en, last_wrdata_en[:-1]))
         self.comb += oe.eq(
             last_wrdata_en[cwl_sys_latency-1] |
-            last_wrdata_en[cwl_sys_latency] |
+            last_wrdata_en[cwl_sys_latency]   |
             last_wrdata_en[cwl_sys_latency+1] |
             last_wrdata_en[cwl_sys_latency+2])
-        self.sync += \
-            If(self._wlevel_en.storage,
-                oe_dqs.eq(1), oe_dq.eq(0)
-            ).Else(
-                oe_dqs.eq(oe), oe_dq.eq(oe)
-            )
+        self.sync += oe_dqs.eq(oe), oe_dq.eq(oe)
         self.sync += bl8_sel.eq(last_wrdata_en[cwl_sys_latency-1])
-        self.sync += preamble_dqs.eq(last_wrdata_en[cwl_sys_latency-2])
-        self.sync += postamble_dqs.eq(oe_dqs)
+        self.sync += dqs_preamble.eq(last_wrdata_en[cwl_sys_latency-2])
+        self.sync += dqs_postamble.eq(oe_dqs)

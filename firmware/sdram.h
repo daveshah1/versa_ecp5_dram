@@ -3,8 +3,6 @@
 
 #include <generated/csr.h>
 
-#define NBMODULES CSR_SDRAM_DFII_PI0_WRDATA_SIZE/2
-
 void sdrsw(void);
 void sdrhw(void);
 
@@ -15,9 +13,6 @@ int write_level(void);
 #endif
 
 #ifdef CSR_DDRPHY_BASE
-
-int sdrwl_delays[16];
-
 void sdrwlon(void);
 void sdrwloff(void);
 int sdrlevel(void);

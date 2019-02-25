@@ -118,12 +118,16 @@ class DDR3TestSoC(SoCSDRAM):
         analyzer_signals = [
             self.ddrphy.dfi.p0,
             self.ddrphy.datavalid,
-            self.ddrphy.burstdet,
-            self.ddrphy.dqs_read,
-            self.ddrphy.readposition
+            self.ddrphy.burstdet
         ]
-        analyzer_signals += [self.ddrphy.dq_i_data[i] for i in range(8)]
         self.submodules.analyzer = LiteScopeAnalyzer(analyzer_signals, 128)
+
+    def generate_sdram_phy_py_header(self):
+        f = open("test/sdram_init.py", "w")
+        f.write(get_sdram_phy_py_header(
+            self.sdram.controller.settings.phy,
+            self.sdram.controller.settings.timing))
+        f.close()
 
     def do_exit(self, vns):
         if hasattr(self, "analyzer"):
@@ -219,6 +223,7 @@ class BaseSoC(SoCSDRAM):
         self.submodules.ddrphy = ecp5ddrphy.ECP5DDRPHY(
             platform.request("ddram"),
             sys_clk_freq=sys_clk_freq)
+        self.add_constant("ECP5DDRPHY", None)
         ddrphy_init = ecp5ddrphy.ECP5DDRPHYInit(self.crg, self.ddrphy)
         self.submodules += ddrphy_init
         sdram_module = MT41K64M16(sys_clk_freq, "1:2")
