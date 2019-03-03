@@ -198,6 +198,15 @@ class RGMIITestSoC(SoCCore):
 
 # BaseSoC ------------------------------------------------------------------------------------------
 
+_jtag_ios = [
+    ("jtag", 0,
+        Subsignal("tck", Pins("X3:11"), IOStandard("LVCMOS33")),
+        Subsignal("tdi", Pins("X3:5"), IOStandard("LVCMOS33")),
+        Subsignal("tms", Pins("X3:6"), IOStandard("LVCMOS33")),
+        Subsignal("tdo", Pins("X3:7"), IOStandard("LVCMOS33")),
+    )
+]
+
 class BaseSoC(SoCSDRAM):
     csr_map = {
         "ddrphy":    16,
@@ -206,10 +215,21 @@ class BaseSoC(SoCSDRAM):
     def __init__(self, toolchain="diamond", **kwargs):
         platform = versa_ecp5.Platform(toolchain=toolchain)
         sys_clk_freq = int(75e6)
+        platform.add_extension(_jtag_ios)
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
-                          cpu_type="vexriscv", cpu_variant="min",
+                          cpu_type="vexriscv", cpu_variant="jtag",
                           integrated_rom_size=0x8000,
+                          integrated_sram_size=0x8000,
                           **kwargs)
+
+
+        jtag = platform.request("jtag")
+
+        self.comb += self.cpu.jtag_tdi.eq(jtag.tdi)
+        self.comb += self.cpu.jtag_tms.eq(jtag.tms)
+        self.comb += self.cpu.jtag_tck.eq(jtag.tck)
+
+        self.comb += jtag.tdo.eq(self.cpu.jtag_tdo)
 
         # crg
         if not self.integrated_main_ram_size:
