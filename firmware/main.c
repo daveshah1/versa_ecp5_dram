@@ -9,6 +9,7 @@
 #include <generated/csr.h>
 #include "sdram_bist.h"
 
+<<<<<<< HEAD
 static char *readstr(void)
 {
 	char c[2];
@@ -110,12 +111,16 @@ static void console_service(void)
 #endif
 	prompt();
 }
+=======
+
+>>>>>>> Integrated DDR3 and Ethernet SoC
 
 int main(void)
 {
 	irq_setmask(0);
 	irq_setie(1);
 	uart_init();
+<<<<<<< HEAD
 
 	puts("\nVersa ECP5 CPU testing software built "__DATE__" "__TIME__);
 	prompt();
@@ -124,5 +129,16 @@ int main(void)
 		console_service();
 	}
 
+=======
+	puts("\e[1m  ___ ___         .__  .__            __      __            .__       .___._.\e[0m");
+	puts("\e[1m /   |   \\   ____ |  | |  |   ____   /  \\    /  \\___________|  |    __| _/| |\e[0m");
+	puts("\e[1m/    ~    \\_/ __ \\|  | |  |  /  _ \\  \\   \\/\\/   /  _ \\_  __ \\  |   / __ | | |\e[0m");
+	puts("\e[1m\\    Y    /\\  ___/|  |_|  |_(  <_> )  \\        (  <_> )  | \\/  |__/ /_/ |  \\|\e[0m");
+	puts("\e[1m \\___|_  /  \\___  >____/____/\\____/    \\__/\\  / \\____/|__|  |____/\\____ |  __\e[0m");
+	puts("\e[1m       \\/       \\/                          \\/                         \\/  \\/\e[0m");
+	puts("\nnetboot test image built "__DATE__" "__TIME__"\n");
+	while(1)
+		;
+>>>>>>> Integrated DDR3 and Ethernet SoC
 	return 0;
 }

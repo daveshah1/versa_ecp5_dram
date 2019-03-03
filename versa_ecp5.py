@@ -85,7 +85,7 @@ class DDR3TestSoC(SoCSDRAM):
     csr_map.update(SoCSDRAM.csr_map)
     def __init__(self, toolchain="diamond"):
         platform = versa_ecp5.Platform(toolchain=toolchain)
-        sys_clk_freq = int(50e6)
+        sys_clk_freq = int(75e6)
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
                           cpu_type=None, l2_size=32,
                           with_uart=None,
@@ -266,6 +266,17 @@ class EthernetSoC(BaseSoC):
         self.add_memory_region("ethmac", self.mem_map["ethmac"] | self.shadow_base, 0x2000)
         #self.add_constant("DEBUG_MICROUDP_TX", None)
         #self.add_constant("DEBUG_MICROUDP_RX", None)
+
+        self.add_constant("LOCALIP1", 192)
+        self.add_constant("LOCALIP2", 168)
+        self.add_constant("LOCALIP3", 7)
+        self.add_constant("LOCALIP4", 100)
+
+        self.add_constant("REMOTEIP1", 192)
+        self.add_constant("REMOTEIP2", 168)
+        self.add_constant("REMOTEIP3", 7)
+        self.add_constant("REMOTEIP4", 1)
+
 
         self.ethphy.crg.cd_eth_rx.clk.attr.add("keep")
         self.ethphy.crg.cd_eth_tx.clk.attr.add("keep")

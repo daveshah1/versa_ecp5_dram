@@ -209,11 +209,12 @@ if sdram_read_training:
                     dq <<= 1
                     dq |= (p0 >> (0 + j)) & 0b1
                     print("dq{:d}: 0b{:08b}, ".format(j, dq))
-
+            """
             for j in range(N_BYTE_GROUPS):
                 wb.regs.ddrphy_dly_sel.write(1 << j)
                 wb.regs.ddrphy_rdly_dq_inc.write(1)
                 wb.regs.ddrphy_dly_sel.write(0)
+            """
             self.disable_mpr()
 
     ddram_leveling = DDRAMReadLeveling()
@@ -222,7 +223,7 @@ if sdram_read_training:
 # DDRAM Test----------------------------------------------------------------------------------------
 
 if sdram_test:
-    ddram_set_rdelay(7)
+    ddram_set_rdelay(0)
     ddram_set_bitslip(0)
 
     # hardware control
