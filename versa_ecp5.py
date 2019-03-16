@@ -219,7 +219,7 @@ class BaseSoC(SoCSDRAM):
         SoCSDRAM.__init__(self, platform, clk_freq=sys_clk_freq,
                           cpu_type="vexriscv", cpu_variant="jtag",
                           integrated_rom_size=0x8000,
-                          integrated_sram_size=0x8000,
+                          integrated_sram_size=0xA000,
                           **kwargs)
 
 
@@ -269,7 +269,7 @@ class EthernetSoC(BaseSoC):
     interrupt_map.update(BaseSoC.interrupt_map)
 
     mem_map = {
-        "ethmac": 0x30000000,  # (shadow @0xb0000000)
+        "ethmac": 0xd0000000,
     }
     mem_map.update(BaseSoC.mem_map)
 
