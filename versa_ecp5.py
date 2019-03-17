@@ -14,6 +14,7 @@ from litex.soc.integration.soc_core import *
 from litex.soc.integration.soc_sdram import *
 from litex.soc.integration.builder import *
 from litex.soc.cores.uart import UARTWishboneBridge
+from litex.soc.cores.gpio import GPIOOut
 from litex.soc.interconnect import wishbone
 
 from litedram.modules import MT41K64M16
@@ -207,6 +208,16 @@ _jtag_ios = [
     )
 ]
 
+_ice_ios = [
+    ("ice", 0,
+        Subsignal("creset", Pins("X3:15"), IOStandard("LVCMOS33")),
+        Subsignal("csn", Pins("X3:16"), IOStandard("LVCMOS33")),
+        Subsignal("sck", Pins("X3:17"), IOStandard("LVCMOS33")),
+        Subsignal("mosi", Pins("X3:18"), IOStandard("LVCMOS33")),
+    )
+    
+]
+
 class BaseSoC(SoCSDRAM):
     csr_map = {
         "ddrphy":    16,
@@ -259,7 +270,8 @@ class BaseSoC(SoCSDRAM):
 class EthernetSoC(BaseSoC):
     csr_map = {
         "ethphy": 18,
-        "ethmac": 19
+        "ethmac": 19,
+        "ice_gpo": 30
     }
     csr_map.update(BaseSoC.csr_map)
 
@@ -296,6 +308,15 @@ class EthernetSoC(BaseSoC):
         self.add_constant("REMOTEIP2", 168)
         self.add_constant("REMOTEIP3", 7)
         self.add_constant("REMOTEIP4", 1)
+
+        self.platform.add_extension(_ice_ios)
+        ice = self.platform.request("ice")
+        ice_gpo = Signal(4)
+        self.submodules.ice_gpo = GPIOOut(ice_gpo)
+        self.comb += ice.creset.eq(ice_gpo[0])
+        self.comb += ice.csn.eq(ice_gpo[1])
+        self.comb += ice.sck.eq(ice_gpo[2])
+        self.comb += ice.mosi.eq(ice_gpo[3])
 
 
         self.ethphy.crg.cd_eth_rx.clk.attr.add("keep")
